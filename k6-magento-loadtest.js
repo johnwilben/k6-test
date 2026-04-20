@@ -32,7 +32,7 @@ const ordersDuration = new Trend('orders_duration');
 export const options = {
   stages: [
     { duration: '30s', target: 10 },    // ramp to 10
-    { duration: '1m',  target: 10 },    // hold 10
+    { duration: '4m',  target: 10 },    // hold 10
     { duration: '30s', target: 0 },     // ramp down
   ],
   thresholds: {
