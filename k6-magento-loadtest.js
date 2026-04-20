@@ -89,6 +89,7 @@ export default function () {
     }`);
     searchDuration.add(res.timings.duration);
     checkGql(res, 'Search');
+    console.log('[Search]', res.json().data?.products?.total_count + ' products found');
   });
 
   sleep(1);
@@ -108,6 +109,7 @@ export default function () {
     }`);
     pdpDuration.add(res.timings.duration);
     checkGql(res, 'PDP');
+    console.log('[PDP]', res.json().data?.products?.items?.[0]?.name || 'no product');
   });
 
   sleep(1);
@@ -122,6 +124,7 @@ export default function () {
     }`, {}, true);
     profileDuration.add(res.timings.duration);
     checkGql(res, 'Profile');
+    console.log('[Profile]', res.json().data?.customer?.email || 'no auth');
   });
 
   sleep(1);
@@ -137,6 +140,7 @@ export default function () {
     }`, {}, true);
     cartViewDuration.add(res.timings.duration);
     checkGql(res, 'ViewCart');
+    console.log('[Cart]', res.json().data?.customerCart?.items?.length + ' items');
 
     // Get cart ID for later
     const body = res.json();
@@ -155,6 +159,7 @@ export default function () {
         }`, {}, true);
         addCartDuration.add(addRes.timings.duration);
         checkGql(addRes, 'AddToCart');
+        console.log('[AddToCart] OK');
 
         sleep(0.5);
 
@@ -172,6 +177,7 @@ export default function () {
               }`, {}, true);
               removeCartDuration.add(rmRes.timings.duration);
               checkGql(rmRes, 'RemoveFromCart');
+              console.log('[RemoveFromCart] OK');
             });
           }
         }
@@ -201,6 +207,7 @@ export default function () {
       }`, {}, true);
       wishlistAddDuration.add(addWl.timings.duration);
       checkGql(addWl, 'WishlistAdd');
+      console.log('[WishlistAdd] OK');
 
       sleep(0.5);
 
@@ -223,6 +230,7 @@ export default function () {
             }`, {}, true);
             wishlistRemoveDuration.add(rmWl.timings.duration);
             checkGql(rmWl, 'WishlistRemove');
+            console.log('[WishlistRemove] OK');
           }
         }
       }
@@ -249,6 +257,7 @@ export default function () {
     }`, {}, true);
     addAddressDuration.add(addAddr.timings.duration);
     checkGql(addAddr, 'AddAddress');
+    console.log('[AddAddress] id:', res.json().data?.createCustomerAddress?.id || 'ok');
 
     const addrBody = addAddr.json();
     if (addrBody.data && addrBody.data.createCustomerAddress) {
@@ -270,6 +279,7 @@ export default function () {
       }`, {}, true);
       updateAddressDuration.add(updAddr.timings.duration);
       checkGql(updAddr, 'UpdateAddress');
+      console.log('[UpdateAddress] OK');
 
       sleep(0.5);
 
@@ -279,6 +289,7 @@ export default function () {
       }`, {}, true);
       removeAddressDuration.add(rmAddr.timings.duration);
       checkGql(rmAddr, 'RemoveAddress');
+      console.log('[RemoveAddress] OK');
     }
   });
 
@@ -299,7 +310,23 @@ export default function () {
     }`, {}, true);
     ordersDuration.add(res.timings.duration);
     checkGql(res, 'Orders');
+    console.log('[Orders]', res.json().data?.customer?.orders?.total_count + ' orders');
   });
 
   sleep(1);
+}
+
+
+// ============================================
+// HTML REPORT — auto-generates after test
+// ============================================
+import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
+import { textSummary } from "https://jslib.k6.io/k6-summary/0.0.1/index.js";
+
+export function handleSummary(data) {
+  return {
+    "report.html": htmlReport(data),
+    "summary.json": JSON.stringify(data, null, 2),
+    stdout: textSummary(data, { indent: " ", enableColors: true }),
+  };
 }
