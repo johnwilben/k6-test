@@ -39,7 +39,7 @@ export const options = {
 const headers = { 'Content-Type': 'application/json' };
 const authHeaders = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${CUSTOMER_TOKEN}` };
 
-function gql(query, useAuth = false) {
+function gql(query, useAuth = true) {
   return http.post(BASE_URL, JSON.stringify({ query }), { headers: useAuth ? authHeaders : headers });
 }
 
@@ -77,8 +77,8 @@ export default function () {
 
   // ── PAGE LOAD QUERIES (every page loads these) ──
   group('Page Load', () => {
-    ok(gql(`{ storeConfig { store_name base_currency_code locale default_title } }`), 'storeConfig');
-    ok(gql(`{ currency { base_currency_code available_currency_codes } }`), 'currency');
+    ok(gql(`{ storeConfig { store_name base_currency_code locale default_title } }`, true), 'storeConfig');
+    ok(gql(`{ currency { base_currency_code available_currency_codes } }`, true), 'currency');
   });
   sleep(0.5);
 
@@ -86,7 +86,7 @@ export default function () {
   group('Browse Categories', () => {
     ok(gql(`{ categories(filters: { parent_id: { eq: "2" } }, pageSize: 10) {
       items { uid name product_count children { uid name product_count } }
-    } }`), 'categories');
+    } }`, true), 'categories');
   });
   sleep(0.5);
 
@@ -96,7 +96,7 @@ export default function () {
     const res = ok(gql(`{ products(search: "${term}", pageSize: 12, sort: { relevance: DESC }) {
       items { sku name url_key thumbnail { url } price_range { minimum_price { regular_price { value currency } final_price { value currency } } } }
       total_count page_info { current_page total_pages }
-    } }`), 'searchProducts');
+    } }`, true), 'searchProducts');
     console.log(`[Search] "${term}" → ${res.json().data?.products?.total_count || 0} results`);
   });
   sleep(0.5);
@@ -107,7 +107,7 @@ export default function () {
     const res = ok(gql(`{ products(filter: { category_uid: { eq: "${cat.uid}" } }, pageSize: 12, sort: { position: ASC }) {
       items { sku name url_key thumbnail { url } price_range { minimum_price { regular_price { value currency } } } }
       total_count
-    } }`), 'filterByCategory');
+    } }`, true), 'filterByCategory');
     console.log(`[Category] ${cat.name} → ${res.json().data?.products?.total_count || 0} products`);
   });
   sleep(0.5);
@@ -124,7 +124,7 @@ export default function () {
         review_count rating_summary
         ... on ConfigurableProduct { configurable_options { attribute_code label values { label value_index } } }
       }
-    } }`), 'pdp');
+    } }`, true), 'pdp');
     console.log(`[PDP] ${res.json().data?.products?.items?.[0]?.name || 'not found'}`);
   });
   sleep(1);
@@ -268,7 +268,7 @@ export default function () {
   group('Shipping Fee Calc', () => {
     const res = gql(`{ palawanpayCustomShippingFees(storeCode: "jewelry", shop: "default", productLabel: "jewelry") {
       freight_fee packing_fee service_fee vat macro_region source
-    } }`);
+    } }`, true);
     metrics['shippingFee'].add(res.timings.duration);
     // This may error in UAT — just log it
     const body = res.json();
