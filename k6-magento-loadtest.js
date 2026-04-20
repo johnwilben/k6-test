@@ -257,7 +257,7 @@ export default function () {
     }`, {}, true);
     addAddressDuration.add(addAddr.timings.duration);
     checkGql(addAddr, 'AddAddress');
-    console.log('[AddAddress] id:', res.json().data?.createCustomerAddress?.id || 'ok');
+    console.log('[AddAddress] id:', addAddr.json().data?.createCustomerAddress?.id || 'ok');
 
     const addrBody = addAddr.json();
     if (addrBody.data && addrBody.data.createCustomerAddress) {
