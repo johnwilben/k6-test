@@ -44,7 +44,10 @@ function gql(query) {
 
 function ok(res, name) {
   const pass = check(res, {
-    [`${name} ok`]: r => r.status === 200 && !r.json().errors,
+    [`${name} ok`]: r => {
+      if (r.status !== 200) return false;
+      try { return !r.json().errors; } catch(e) { return false; }
+    },
   });
   errorRate.add(!pass);
   if (m[name]) m[name].add(res.timings.duration);
@@ -121,7 +124,7 @@ function viewCart() {
     items { id uid product { sku name } quantity prices { price { value currency } row_total { value currency } } }
     prices { grand_total { value currency } subtotal_excluding_tax { value } }
   } }`), 'viewCart');
-  return res.json().data?.customerCart;
+  try { return res.json().data?.customerCart; } catch(e) { return null; }
 }
 
 function addToCart(cartId) {
@@ -195,10 +198,12 @@ function removeAddress(id) {
 // ============================================
 function buyerFlow() {
   group('Buyer', () => {
+    
     pageLoad();
     think();
 
     const rounds = randInt(3, 5);
+    console.log('[Buyer] ' + rounds + ' rounds');
     let cart = null;
     for (let i = 0; i < rounds; i++) {
       // Browse
@@ -236,6 +241,7 @@ function buyerFlow() {
 
 function windowShopperFlow() {
   group('Window Shopper', () => {
+    console.log('[Shopper] browsing');
     pageLoad();
     think();
 
@@ -283,6 +289,7 @@ function windowShopperFlow() {
 
 function orderCheckerFlow() {
   group('Order Checker', () => {
+    console.log('[OrderChecker] checking orders');
     pageLoad();
     think();
 
@@ -311,6 +318,7 @@ function orderCheckerFlow() {
 
 function accountManagerFlow() {
   group('Account Manager', () => {
+    console.log('[AcctMgr] managing account');
     pageLoad();
     think();
 
@@ -333,7 +341,7 @@ function accountManagerFlow() {
 
       // Wishlist management
       const wlRes = gql(`{ customer { wishlists { id items_v2(currentPage: 1, pageSize: 5) { items { id product { sku } } } } } }`);
-      const wl = wlRes.json().data?.customer?.wishlists?.[0];
+      let wl; try { wl = wlRes.json().data?.customer?.wishlists?.[0]; } catch(e) { wl = null; }
       if (wl && wl.id) {
         const items = addToWishlist(wl.id);
         think();
