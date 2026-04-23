@@ -132,7 +132,7 @@ function addToCart(cartId) {
   const res = ok(gql(`mutation { addProductsToCart(cartId: "${cartId}", cartItems: [{ sku: "${sku}", quantity: ${randInt(1,3)} }]) {
     cart { total_quantity items { id product { sku } quantity } }
   } }`), 'addToCart');
-  return res.json().data?.addProductsToCart?.cart?.items;
+  try { return res.json().data?.addProductsToCart?.cart?.items; } catch(e) { return null; }
 }
 
 function removeFromCart(cartId, itemId) {
@@ -146,7 +146,7 @@ function addToWishlist(wishlistId) {
   const res = ok(gql(`mutation { addProductsToWishlist(wishlistId: "${wishlistId}", wishlistItems: [{ sku: "${sku}", quantity: 1 }]) {
     wishlist { id items_count items_v2(currentPage: 1, pageSize: 5) { items { id product { sku } } } }
   } }`), 'addWishlist');
-  return res.json().data?.addProductsToWishlist?.wishlist?.items_v2?.items;
+  try { return res.json().data?.addProductsToWishlist?.wishlist?.items_v2?.items; } catch(e) { return null; }
 }
 
 function removeFromWishlist(wishlistId, itemId) {
@@ -179,7 +179,7 @@ function addAddress() {
     city: "Manila", postcode: "1000", telephone: "0917${randInt(1000000,9999999)}", country_code: PH
     default_shipping: false, default_billing: false
   }) { id firstname } }`), 'addAddress');
-  return res.json().data?.createCustomerAddress?.id;
+  try { return res.json().data?.createCustomerAddress?.id; } catch(e) { return null; }
 }
 
 function updateAddress(id) {
@@ -250,7 +250,7 @@ function windowShopperFlow() {
 
     // Get wishlist ID
     const wlRes = gql(`{ customer { wishlists { id items_count } } }`);
-    wishlistId = wlRes.json().data?.customer?.wishlists?.[0]?.id || '';
+    try { wishlistId = wlRes.json().data?.customer?.wishlists?.[0]?.id || ''; } catch(e) { wishlistId = ''; }
 
     for (let i = 0; i < rounds; i++) {
       // Random browsing
