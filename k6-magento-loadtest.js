@@ -1,137 +1,149 @@
-import http from 'k6/http';
-import { check, sleep, group } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { browser } from 'k6/browser';
+import { check, sleep } from 'k6';
+import { Trend, Rate } from 'k6/metrics';
 import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
 import { textSummary } from "https://jslib.k6.io/k6-summary/0.0.1/index.js";
 
-// ============================================
-// CONFIG & OPTIONS
-// ============================================
-const BASE_URL = 'https://magento-backend-uat.palawanpay.com/graphql';
+// --- Configuration ---
+const BASE = 'https://jewelry-uat.palawanpay.com';
+const AUTH_TOKEN = __ENV.CUSTOMER_TOKEN; 
+
+// --- Custom Metrics ---
+const errorRate = new Rate('browser_errors');
+const pageLoad = new Trend('page_load_time');
+const ttfb = new Trend('time_to_first_byte');
+const fcp = new Trend('first_contentful_paint');
+
+const pages = [
+  { name: 'Home', path: '/' },
+  { name: 'Search', path: '/search?q=ring' },
+  { name: 'Cart', path: '/cart' },
+  { name: 'Account', path: '/account' },
+  { name: 'Checkout', path: '/checkout' },
+];
+
+// Per-page metrics setup
+const pageDurations = {};
+pages.forEach(p => {
+  pageDurations[p.name] = new Trend(p.name.toLowerCase() + '_duration');
+});
 
 export const options = {
-  stages: [
-    { duration: '30s', target: 10 },
-    { duration: '4m',  target: 10 },
-    { duration: '30s', target: 0 },
-  ],
+  scenarios: {
+    browser_test: {
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: '2m', target: 5 },  // Warm-up: 0 to 5 VUs
+        { duration: '3m', target: 12 }, // Scaling Phase: 5 to 12 VUs (ECS trigger point)
+        { duration: '5m', target: 20 }, // Stress Phase: Hold at 20 VUs
+        { duration: '2m', target: 0 },  // Cool-down
+      ],
+      options: { 
+        browser: { 
+          type: 'chromium',
+        } 
+      },
+    },
+  },
   thresholds: {
-    http_req_duration: ['p(95)<5000'], // 95% of requests must be under 5s
-    'errors': ['rate<0.1'],            // Error rate must be less than 10%
+    'browser_errors': ['rate<0.15'], // Allow 15% error rate for heavy stress
+    'page_load_time': ['p(95)<15000'], // 15 seconds target for frontend
   },
 };
 
-// ============================================
-// METRICS & DATA
-// ============================================
-const errorRate = new Rate('errors');
-const m = {};
-['storeConfig','currency','categories','searchProducts','filterByCategory','pdp','profile','viewCart','addToCart','removeFromCart','addWishlist','removeWishlist','addAddress','updateAddress','removeAddress','orders','orderDetail'].forEach(f => {
-    m[f] = new Trend(f + '_duration');
-});
-
-const SEARCHES = ['ring','gold','necklace','bracelet','earring'];
-const SKUS = ['Ring A','Gold Ring','Gold Necklace']; 
-const ORDER_NUMBERS = ['000000564','000000593'];
-
-// ============================================
-// CORE HELPER (The "Fix")
-// ============================================
-function gql(query, name) {
-  const token = __ENV.CUSTOMER_TOKEN;
-  const params = {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-  };
-
-  const res = http.post(BASE_URL, JSON.stringify({ query }), params);
-
-  const pass = check(res, {
-    [`${name} HTTP 200`]: (r) => r.status === 200,
-    [`${name} GQL No Errors`]: (r) => {
-      try {
-        const body = r.json();
-        return !body.errors || body.errors.length === 0;
-      } catch (e) { return false; }
-    },
-  });
-
-  errorRate.add(!pass);
-  if (m[name]) m[name].add(res.timings.duration);
-  return res;
+// --- Helper Functions ---
+function randInt(min, max) { 
+  return Math.floor(Math.random() * (max - min + 1)) + min; 
 }
 
-function think() { sleep(Math.random() * 2 + 0.5); }
-function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
-
-// ============================================
-// ACTIONS (Refactored for Stability)
-// ============================================
-function pageLoad() {
-  gql(`{ storeConfig { store_name } }`, 'storeConfig');
-  gql(`{ currency { base_currency_code } }`, 'currency');
-}
-
-function viewCart() {
-  const res = gql(`{ customerCart { id total_quantity items { id product { sku } quantity } } }`, 'viewCart');
-  try { return res.json().data?.customerCart; } catch(e) { return null; }
-}
-
-function viewPDP() {
-  const sku = rand(SKUS);
-  gql(`{ products(filter: { sku: { eq: "${sku}" } }) { items { sku name } } }`, 'pdp');
-}
-
-// ============================================
-// PERSONAS
-// ============================================
-function buyerFlow() {
-  group('Buyer', () => {
-    pageLoad();
-    think();
+async function visitPage(page, name, path, metric) {
+  try {
+    console.log(`[VU:${__VU}] Visiting ${name}...`);
+    const start = Date.now();
     
-    // Search & View
-    gql(`{ products(search: "${rand(SEARCHES)}", pageSize: 5) { items { sku } } }`, 'searchProducts');
-    think();
-    viewPDP();
+    // Go to page
+    await page.goto(BASE + path, { waitUntil: 'networkidle', timeout: 45000 });
     
-    // Cart Activity
-    const cart = viewCart();
-    if (cart && cart.id) {
-      gql(`mutation { addProductsToCart(cartId: "${cart.id}", cartItems: [{ sku: "${rand(SKUS)}", quantity: 1 }]) { cart { id } } }`, 'addToCart');
-    }
-  });
-}
+    const dur = Date.now() - start;
+    metric.add(dur);
 
-// (Other flows follow the same pattern...)
+    check(page, { [`${name} loaded`]: p => p.url().includes(BASE) });
 
-export default function () {
-  // Check muna kung may token, kung wala, huwag tumakbo.
-  if (!__ENV.CUSTOMER_TOKEN) {
-    console.error("Missing CUSTOMER_TOKEN! Run with: -e CUSTOMER_TOKEN=your_token");
-    return;
-  }
-
-  const roll = Math.random();
-  if (roll < 0.5) {
-    buyerFlow();
-  } else {
-    group('QuickCheck', () => {
-        pageLoad();
-        gql(`{ customer { email } }`, 'profile');
+    // Collect Web Vitals via Performance API
+    const perf = await page.evaluate(() => {
+      const nav = performance.getEntriesByType('navigation')[0];
+      const paint = performance.getEntriesByType('paint');
+      const fcpEntry = paint.find(p => p.name === 'first-contentful-paint');
+      return {
+        loadTime: nav ? nav.loadEventEnd - nav.startTime : 0,
+        ttfb: nav ? nav.responseStart - nav.startTime : 0,
+        fcp: fcpEntry ? fcpEntry.startTime : 0,
+      };
     });
+
+    if (perf.loadTime > 0) pageLoad.add(perf.loadTime);
+    if (perf.ttfb > 0) ttfb.add(perf.ttfb);
+    if (perf.fcp > 0) fcp.add(perf.fcp);
+
+    errorRate.add(0);
+  } catch (e) {
+    console.log(`[VU:${__VU}] ERROR on ${name}: ${e.message}`);
+    errorRate.add(1);
+    await page.screenshot({ path: `screenshots/ERROR_${name}_VU${__VU}.png` });
   }
 }
 
-// ============================================
-// REPORTING
-// ============================================
+// --- Main Execution ---
+export default async function () {
+  const context = await browser.newContext();
+  
+  // OPTIONAL: I-inject ang token kung kailangan mo ng authenticated session
+  /*
+  await context.addCookies([{
+    name: 'token', 
+    value: AUTH_TOKEN,
+    domain: 'jewelry-uat.palawanpay.com',
+    path: '/',
+  }]);
+  */
+
+  const page = await context.newPage();
+
+  try {
+    // 1. Loop through all defined pages
+    for (const p of pages) {
+      await visitPage(page, p.name, p.path, pageDurations[p.name]);
+      sleep(randInt(2, 5)); // Realistic think time
+    }
+
+    // 2. Realistic Interaction: Search and go to Product Detail Page (PDP)
+    try {
+      console.log(`[VU:${__VU}] Testing PDP Interaction...`);
+      await page.goto(BASE + '/search?q=gold', { waitUntil: 'networkidle' });
+      const productLink = page.locator('a[href*="/p/"]').first();
+      
+      if (await productLink.isVisible()) {
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'networkidle' }),
+          productLink.click(),
+        ]);
+        console.log(`[VU:${__VU}] PDP loaded successfully`);
+      }
+    } catch (err) {
+      console.log(`[VU:${__VU}] PDP Interaction failed`);
+    }
+
+  } finally {
+    await page.close();
+    await context.close();
+  }
+}
+
+// --- Reporting ---
 export function handleSummary(data) {
   return {
-    "report.html": htmlReport(data),
-    "summary.json": JSON.stringify(data, null, 2),
+    "frontend-gradual-report.html": htmlReport(data),
     stdout: textSummary(data, { indent: " ", enableColors: true }),
   };
 }
