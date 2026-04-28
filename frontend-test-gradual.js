@@ -1,19 +1,30 @@
 import { browser } from 'k6/browser';
 import { check, sleep } from 'k6';
-import { Trend } from 'k6/metrics';
+import { Trend, Rate } from 'k6/metrics';
+import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
+import { textSummary } from "https://jslib.k6.io/k6-summary/0.0.1/index.js";
 
 const homeDuration = new Trend('home_duration');
+const errorRate = new Rate('browser_errors');
 
 export const options = {
   scenarios: {
     browser_test: {
-      executor: 'constant-vus',
-      vus: 3, // Safe muna tayo sa 3
-      duration: '2m',
+      executor: 'ramping-vus',
+      startVUs: 0,
+      stages: [
+        { duration: '1m', target: 5 },
+        { duration: '3m', target: 10 }, // Balik sa 10 VUs
+        { duration: '1m', target: 0 },
+      ],
       options: { 
         browser: { type: 'chromium' } 
       },
     },
+  },
+  thresholds: {
+    'browser_errors': ['rate<0.1'],
+    'home_duration': ['p(95)<15000'],
   },
 };
 
@@ -23,35 +34,34 @@ export default async function () {
 
   try {
     const startHome = Date.now();
-    console.log(`[VU:${__VU}] Navigating to Home...`);
-    
     await page.goto('https://jewelry-uat.palawanpay.com', { 
-      waitUntil: 'load', // 'load' muna para mabilis
+      waitUntil: 'networkidle', 
       timeout: 60000 
     });
-
     homeDuration.add(Date.now() - startHome);
     
-    // KUNIN NATIN ANG TOTOONG TITLE
-    const actualTitle = await page.title();
-    console.log(`[VU:${__VU}] TOTOONG TITLE NA NAKITA: "${actualTitle}"`);
+    // Kumuha ng sample text sa body para sa check
+    const bodyText = await page.evaluate(() => document.body.innerText);
 
-    // KUNIN NATIN ANG UNANG 100 CHARACTERS NG TEXT SA BODY
-    const bodyText = await page.evaluate(() => document.body.innerText.substring(0, 100));
-    console.log(`[VU:${__VU}] BODY TEXT SAMPLE: "${bodyText.replace(/\n/g, ' ')}"`);
-
-    check(actualTitle, {
-      'Title is not empty': (t) => t.length > 0,
+    check(bodyText, {
+      'Site Rendered (Has Rings)': (t) => t.includes('Rings'),
+      'Site Rendered (Has Jewelry)': (t) => t.includes('JEWELRY'),
     });
 
-    // Screenshot para proof kung ano talaga ang itsura
-    await page.screenshot({ path: `screenshots/actual_look_vu${__VU}.png` });
-
+    errorRate.add(0);
     sleep(5);
   } catch (err) {
     console.log(`[VU:${__VU}] Error: ${err.message}`);
+    errorRate.add(1);
   } finally {
     await page.close();
     await context.close();
   }
+}
+
+export function handleSummary(data) {
+  return {
+    "palawan-jewelry-final-report.html": htmlReport(data),
+    stdout: textSummary(data, { indent: " ", enableColors: true }),
+  };
 }
