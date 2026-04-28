@@ -10,7 +10,6 @@ const pageLoad = new Trend('page_load_time');
 const ttfb = new Trend('time_to_first_byte');
 const fcp = new Trend('first_contentful_paint');
 
-// Names for specific page tracking
 const homeDuration = new Trend('home_duration');
 const searchDuration = new Trend('search_duration');
 const cartDuration = new Trend('cart_duration');
@@ -21,9 +20,9 @@ export const options = {
       executor: 'ramping-vus',
       startVUs: 0,
       stages: [
-        { duration: '1m', target: 5 },  // Warm-up
-        { duration: '4m', target: 10 }, // Target: 10 Users (Steady State)
-        { duration: '1m', target: 0 },  // Cooldown
+        { duration: '1m', target: 5 },  
+        { duration: '4m', target: 10 }, 
+        { duration: '1m', target: 0 },  
       ],
       options: { 
         browser: { 
@@ -33,9 +32,9 @@ export const options = {
     },
   },
   thresholds: {
-    'browser_errors': ['rate<0.05'], // Max 5% errors
-    'page_load_time': ['p(95)<10000'], // 10s goal for 95% of users
-    'home_duration': ['p(95)<12000'],  // Home page focus
+    'browser_errors': ['rate<0.05'], 
+    'page_load_time': ['p(95)<10000'], 
+    'home_duration': ['p(95)<12000'],  
   },
 };
 
@@ -52,11 +51,13 @@ export default async function () {
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
     homeDuration.add(Date.now() - homeStart);
     
+    // Kinompleto ko yung check para mas accurate
+    const logo = page.locator('a.logo');
     check(page, {
-      'Home: Has Logo': (p) => p.locator('a.logo').isVisible(),
+      'Home: Logo visible': () => logo.isVisible(),
     });
 
-    sleep(Math.random() * 3 + 2); // 2-5s think time
+    sleep(Math.random() * 3 + 2); 
 
     // 2. SEARCH PAGE
     console.log(`[VU:${__VU}] Searching for products...`);
@@ -64,8 +65,10 @@ export default async function () {
     await page.goto(`${BASE_URL}/search?q=ring`, { waitUntil: 'networkidle' });
     searchDuration.add(Date.now() - searchStart);
     
+    // FIXED: Ginamit ang nth(0) sa halip na first()
+    const firstProduct = page.locator('.product-item').nth(0);
     check(page, {
-      'Search: Results shown': (p) => p.locator('.product-item').first().isVisible(),
+      'Search: Results shown': () => firstProduct.isVisible(),
     });
 
     sleep(Math.random() * 2 + 1);
@@ -76,7 +79,6 @@ export default async function () {
     await page.goto(`${BASE_URL}/cart`, { waitUntil: 'networkidle' });
     cartDuration.add(Date.now() - cartStart);
 
-    // Capture Web Vitals using Performance API
     const metrics = await page.evaluate(() => {
       const nav = performance.getEntriesByType('navigation')[0];
       const paint = performance.getEntriesByType('paint');
@@ -97,14 +99,14 @@ export default async function () {
   } catch (err) {
     console.error(`[VU:${__VU}] Error: ${err.message}`);
     errorRate.add(1);
-    await page.screenshot({ path: `screenshots/error_vu${__VU}_${Date.now()}.png` });
+    // Screenshot para makita kung ano talaga ang mali
+    await page.screenshot({ path: `screenshots/error_vu${__VU}.png` });
   } finally {
     await page.close();
     await context.close();
   }
 }
 
-// --- Report Generation ---
 export function handleSummary(data) {
   return {
     "frontend-10vu-report.html": htmlReport(data),
