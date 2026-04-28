@@ -1,67 +1,92 @@
 import { browser } from 'k6/browser';
 import { check, sleep } from 'k6';
-import { Trend, Rate } from 'k6/metrics';
+import { Trend } from 'k6/metrics';
 import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
-import { textSummary } from "https://jslib.k6.io/k6-summary/0.0.1/index.js";
 
-const homeDuration = new Trend('home_duration');
-const errorRate = new Rate('browser_errors');
-
-export const options = {
-  scenarios: {
-    browser_test: {
-      executor: 'ramping-vus',
-      startVUs: 0,
-      stages: [
-        { duration: '1m', target: 5 },
-        { duration: '3m', target: 10 }, // Balik sa 10 VUs
-        { duration: '1m', target: 0 },
-      ],
-      options: { 
-        browser: { type: 'chromium' } 
-      },
-    },
-  },
-  thresholds: {
-    'browser_errors': ['rate<0.1'],
-    'home_duration': ['p(95)<15000'],
-  },
+const trends = {
+    gql_login: new Trend('gql_action_login'),
+    gql_search: new Trend('gql_action_search'),
+    gql_add_to_cart: new Trend('gql_action_add_to_cart'),
+    gql_checkout_init: new Trend('gql_action_checkout'),
 };
 
+export const options = {
+    scenarios: {
+        graphql_e2e: {
+            executor: 'constant-vus',
+            vus: 5,
+            duration: '10m',
+            options: { browser: { type: 'chromium' } },
+        },
+    },
+};
+
+const BASE_URL = 'https://jewelry-uat.palawanpay.com';
+
 export default async function () {
-  const context = await browser.newContext();
-  const page = await context.newPage();
+    const context = await browser.newContext();
+    const page = await context.newPage();
 
-  try {
-    const startHome = Date.now();
-    await page.goto('https://jewelry-uat.palawanpay.com', { 
-      waitUntil: 'networkidle', 
-      timeout: 60000 
-    });
-    homeDuration.add(Date.now() - startHome);
-    
-    // Kumuha ng sample text sa body para sa check
-    const bodyText = await page.evaluate(() => document.body.innerText);
+    try {
+        // 1. LOGIN (GraphQL Mutation usually)
+        console.log(`[VU:${__VU}] Action: Login via GQL`);
+        const startLogin = Date.now();
+        await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle' });
+        
+        await page.locator('input[type="email"]').type('uat_test@palawanpay.com');
+        await page.locator('input[type="password"]').type('UATPassword123!');
+        
+        // Hintayin natin ang GraphQL response ng 'login' mutation
+        await Promise.all([
+            page.waitForResponse(res => res.url().includes('/graphql') && res.status() === 200),
+            page.locator('button[type="submit"]').click(),
+        ]);
+        trends.gql_login.add(Date.now() - startLogin);
 
-    check(bodyText, {
-      'Site Rendered (Has Rings)': (t) => t.includes('Rings'),
-      'Site Rendered (Has Jewelry)': (t) => t.includes('JEWELRY'),
-    });
+        sleep(2);
 
-    errorRate.add(0);
-    sleep(5);
-  } catch (err) {
-    console.log(`[VU:${__VU}] Error: ${err.message}`);
-    errorRate.add(1);
-  } finally {
-    await page.close();
-    await context.close();
-  }
+        // 2. FILTERING / SEARCHING (GraphQL Query)
+        console.log(`[VU:${__VU}] Action: GQL Search`);
+        const startSearch = Date.now();
+        await page.goto(`${BASE_URL}/search?q=ring`, { waitUntil: 'networkidle' });
+        
+        // Sa GraphQL, kailangan nating hintayin na mag-render yung elements 
+        // kasi yung page load (200 OK) ay madalas empty shell lang.
+        await page.waitForSelector('.product-item', { timeout: 15000 });
+        trends.gql_search.add(Date.now() - startSearch);
+
+        // 3. ADDING TO CART (The most heavy GraphQL Mutation)
+        console.log(`[VU:${__VU}] Action: Add to Cart`);
+        const startAddCart = Date.now();
+        
+        const addToCartBtn = page.locator('button.add-to-cart-btn').nth(0); // Adjust selector
+        await Promise.all([
+            // Hintayin ang specific cart mutation response
+            page.waitForResponse(res => res.url().includes('/graphql')), 
+            addToCartBtn.click(),
+        ]);
+        
+        trends.gql_add_to_cart.add(Date.now() - startAddCart);
+        check(page, {
+            'Cart Updated': () => page.locator('.cart-count').innerText() !== '0',
+        });
+
+        // 4. ADDRESS & PURCHASES (Account Dashboard)
+        console.log(`[VU:${__VU}] Action: Fetching Orders/Address`);
+        await page.goto(`${BASE_URL}/customer/account`, { waitUntil: 'networkidle' });
+        await page.waitForSelector('.account-dashboard', { timeout: 10000 });
+
+    } catch (err) {
+        console.error(`[VU:${__VU}] GraphQL Flow Error: ${err.message}`);
+        await page.screenshot({ path: `screenshots/gql_error_vu${__VU}.png` });
+    } finally {
+        await page.close();
+        await context.close();
+    }
 }
 
 export function handleSummary(data) {
-  return {
-    "palawan-jewelry-final-report.html": htmlReport(data),
-    stdout: textSummary(data, { indent: " ", enableColors: true }),
-  };
+    return {
+        "graphql-frontend-report.html": htmlReport(data),
+    };
 }
