@@ -51,10 +51,10 @@ export default async function () {
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
     homeDuration.add(Date.now() - homeStart);
     
-    // Kinompleto ko yung check para mas accurate
-    const logo = page.locator('a.logo');
+    // Check using wait and visibility
+    const logoExists = await page.waitForSelector('a.logo', { state: 'visible', timeout: 10000 });
     check(page, {
-      'Home: Logo visible': () => logo.isVisible(),
+      'Home: Logo visible': () => logoExists !== null,
     });
 
     sleep(Math.random() * 3 + 2); 
@@ -65,10 +65,10 @@ export default async function () {
     await page.goto(`${BASE_URL}/search?q=ring`, { waitUntil: 'networkidle' });
     searchDuration.add(Date.now() - searchStart);
     
-    // FIXED: Ginamit ang nth(0) sa halip na first()
-    const firstProduct = page.locator('.product-item').nth(0);
+    // RE-FIXED: Ginamit ang waitForSelector (state: attached/visible) sa halip na nth/first
+    const productItem = await page.waitForSelector('.product-item', { state: 'visible', timeout: 10000 });
     check(page, {
-      'Search: Results shown': () => firstProduct.isVisible(),
+      'Search: Results shown': () => productItem !== null,
     });
 
     sleep(Math.random() * 2 + 1);
@@ -99,7 +99,6 @@ export default async function () {
   } catch (err) {
     console.error(`[VU:${__VU}] Error: ${err.message}`);
     errorRate.add(1);
-    // Screenshot para makita kung ano talaga ang mali
     await page.screenshot({ path: `screenshots/error_vu${__VU}.png` });
   } finally {
     await page.close();
