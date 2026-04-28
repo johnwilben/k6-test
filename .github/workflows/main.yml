@@ -1,0 +1,19 @@
+name: K6 Load Test
+on:
+  workflow_dispatch: # Para pwede mong i-run manually sa GitHub Actions tab
+
+jobs:
+  k6_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run k6 test
+        run: k6 run -e CUSTOMER_TOKEN=${{ secrets.K6_CUSTOMER_TOKEN }} loadtest.js
+        # TANDAAN: Walang gitling (-) sa ilalim ng 'run' para sa env
+        env:
+          CUSTOMER_TOKEN: ${{ secrets.K6_CUSTOMER_TOKEN }}
