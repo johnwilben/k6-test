@@ -66,14 +66,16 @@ jobs:
               -e BASE_URL="$BASE_URL" \
               --include-system-env-vars=false \
               --tag testid=${{ github.run_id }} \
-              k6-tests/tests/stress.js
+              --summary-export=k6-tests/results/summary.json \
+              k6-tests/lib/stress.js
           elif [ "$SCENARIO" = "spike_test" ]; then
             k6 run \
               -e TOKEN="$TOKEN" \
               -e BASE_URL="$BASE_URL" \
               --include-system-env-vars=false \
               --tag testid=${{ github.run_id }} \
-              k6-tests/tests/stress.js
+              --summary-export=k6-tests/results/summary.json \
+              k6-tests/lib/stress.js
           else
             # Run both (default)
             k6 run \
@@ -81,7 +83,8 @@ jobs:
               -e BASE_URL="$BASE_URL" \
               --include-system-env-vars=false \
               --tag testid=${{ github.run_id }} \
-              k6-tests/tests/stress.js
+              --summary-export=k6-tests/results/summary.json \
+              k6-tests/lib/stress.js
           fi
 
       # ── Upload results ─────────────────────────────────────────────────────────
