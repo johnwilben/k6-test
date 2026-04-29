@@ -1,45 +1,53 @@
 # k6 Stress Tests — PalawanPay Jewelry Frontend
 
-GraphQL-based k6 stress test suite covering all major user flows.
+Browser-based k6 stress test suite covering all major authenticated user flows.
 
 ---
 
 ## Project Structure
 
 ```
-k6-tests/
-├── lib/
-│   ├── graphql.js      # HTTP helper + response checker
-│   └── queries.js      # All GraphQL queries & mutations
-├── tests/
-│   └── stress.js       # Main test entry point (stress + spike scenarios)
-├── results/            # Auto-generated: JSON output after each run
+lib/
+├── graphql.js          # HTTP helper (for direct GraphQL tests)
+├── queries.js          # GraphQL queries & mutations
+├── stress.js           # Main browser-based stress test
+├── k6-stress-test.yml  # GitHub Actions workflow
 └── README.md
 
-.github/
-└── workflows/
-    └── k6-stress-test.yml
+Root files:
+├── k6-frontend-test.js       # Page-level browser test
+├── k6-magento-loadtest.js     # Gradual ramping browser test
+├── frontend-test-gradual.js   # Authenticated E2E browser test
+└── command                    # Quick-run command reference
 ```
 
 ---
 
-## Test Coverage
+## Test Coverage (stress.js)
 
-| Flow | Group Name |
-|------|------------|
-| User Profile | `user_profile` |
-| Product Search & Filter | `product_search_and_filter` |
-| Product Detail Page (PDP) | `product_detail_page` |
-| Shopping Cart (view, add, remove) | `shopping_cart` |
-| Wishlist (add, remove) | `wishlist` |
-| Address CRUD (add, update, remove) | `addresses` |
-| Orders / Purchases Page | `orders_page` |
+| # | Flow | Description |
+|---|------|-------------|
+| 1 | User Login | SSO callback authentication |
+| 2 | User Profile | Navigate to /account |
+| 3 | Search Products | Search with random terms |
+| 4 | Filter Products | Navigate categories, click into category |
+| 5 | Product Detail (PDP) | Search → click product |
+| 6 | Add to Cart | Add product from PDP |
+| 7 | View Cart | Navigate to /cart |
+| 8 | Remove from Cart | Remove item from cart |
+| 9 | Add to Wishlist | Add product from PDP |
+| 10 | Remove from Wishlist | Remove item from wishlist |
+| 11 | Add Address | Fill and submit new address |
+| 12 | Update Address | Edit existing address |
+| 13 | Remove Address | Delete an address |
+| 14 | Orders / Purchases | View orders + drill into detail |
 
 ---
 
 ## Running Locally
 
 ### Prerequisites
+
 ```bash
 # macOS
 brew install k6
@@ -53,89 +61,81 @@ echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.i
 sudo apt-get update && sudo apt-get install k6
 ```
 
-### Run the test
+### Run the stress test
+
 ```bash
 k6 run \
-  -e TOKEN=<your_jwt_token> \
+  -e TOKEN=<your_sso_jwt_token> \
   -e BASE_URL=https://jewelry-uat.palawanpay.com \
-  k6-tests/tests/stress.js
+  lib/stress.js
+```
+
+### With debug logging
+
+```bash
+k6 run \
+  -e TOKEN=<your_sso_jwt_token> \
+  -e BASE_URL=https://jewelry-uat.palawanpay.com \
+  -e DEBUG=true \
+  lib/stress.js
 ```
 
 > ⚠️ **NEVER hardcode the token.** Always pass via `-e TOKEN=...` or a GitHub Secret.
-
----
-
-## GitHub Actions Setup
-
-### 1. Add the secret
-Go to: **Settings → Secrets and variables → Actions → New repository secret**
-
-| Name | Value |
-|------|-------|
-| `PALAWANPAY_JWT_TOKEN` | Your JWT token (without the URL prefix) |
-
-### 2. Trigger manually
-Go to: **Actions → k6 Stress Test → Run workflow**
-
-You can choose:
-- **base_url** — target environment
-- **scenario** — `stress_test`, `spike_test`, or `both`
-
-### 3. Scheduled runs
-The workflow automatically runs daily at **10 AM PHT** (2 AM UTC).
+> ⚠️ **Browser tests require Chromium.** k6 will download it automatically on first run.
 
 ---
 
 ## Load Profile
 
-### Stress Test
 | Phase | Duration | VUs |
 |-------|----------|-----|
-| Ramp-up | 2m | 0 → 10 |
-| Stress | 5m | 10 → 50 |
-| Peak | 3m | 50 → 100 |
-| Scale-down | 2m | 100 → 50 |
-| Cooldown | 2m | 50 → 0 |
+| Warm-up | 2m | 1 → 5 |
+| Ramp-up | 5m | 5 → 15 |
+| Peak | 3m | 15 → 30 |
+| Cool-down | 2m | 30 → 0 |
 
-### Spike Test (runs after stress test at T+15m)
-| Phase | Duration | VUs |
-|-------|----------|-----|
-| Idle | 30s | 0 |
-| Spike | 10s | 0 → 200 |
-| Hold | 1m | 200 |
-| Drop | 10s | 200 → 0 |
+> VU counts are lower than protocol-level tests because each browser VU
+> consumes significantly more CPU/memory.
 
 ---
 
-## Thresholds (Pass/Fail Criteria)
+## Thresholds (Pass/Fail)
 
 | Metric | Threshold |
 |--------|-----------|
-| `http_req_duration` p95 | < 3000ms |
-| `http_req_duration` p99 | < 5000ms |
-| `http_req_failed` | < 5% |
-| `success_rate` | > 95% |
-| `graphql_errors` | < 100 total |
+| `page_load_time` p95 | < 15,000ms |
+| `flow_errors` | < 15% |
+| `flow_success` | > 85% |
 
 ---
 
-## Customization Required
+## Metrics Collected
 
-Before running, update these in `tests/stress.js`:
+### Global
+- `page_load_time` — browser page load duration
+- `time_to_first_byte` — TTFB from navigation API
+- `first_contentful_paint` — FCP from paint API
+- `flow_errors` / `flow_success` — overall pass/fail rate
 
-```js
-// Adjust to real category IDs from your Magento instance
-const CATEGORY_IDS = ["3", "4", "5", "6"];
-
-// Adjust to real SKUs from your product catalog
-const SAMPLE_SKUS = ["SKU001", "SKU002", "SKU003"];
-
-// Adjust to real product URL keys
-const SAMPLE_URL_KEYS = ["gold-ring-001", "silver-necklace-001"];
-```
+### Per-Flow
+- `flow_{name}_duration` — timing for each flow step
+- `flow_{name}_errors` — error count per flow
 
 ---
 
-## Results
+## Reports
 
-After each run, a `results/summary.json` is saved and uploaded as a GitHub Actions artifact (retained for 30 days).
+After each run, two files are generated:
+- `stress-report.html` — visual HTML report
+- `stress-summary.json` — raw JSON data
+
+---
+
+## GitHub Actions
+
+### Setup
+1. Add secret: **Settings → Secrets → `PALAWANPAY_JWT_TOKEN`**
+2. Trigger: **Actions → k6 Stress Test → Run workflow**
+
+### Scheduled
+Daily at **10 AM PHT** (2 AM UTC).
