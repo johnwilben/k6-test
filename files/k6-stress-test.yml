@@ -1,0 +1,144 @@
+name: k6 Stress Test — PalawanPay Jewelry Frontend
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Target base URL"
+        required: true
+        default: "https://jewelry-uat.palawanpay.com"
+      scenario:
+        description: "Test scenario to run"
+        required: true
+        default: "stress_test"
+        type: choice
+        options:
+          - stress_test
+          - spike_test
+          - both
+  schedule:
+    # Runs every day at 2 AM UTC (10 AM PHT)
+    - cron: "0 2 * * *"
+
+env:
+  K6_VERSION: "0.54.0"
+
+jobs:
+  k6-stress-test:
+    name: Run k6 Stress Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Install k6 ────────────────────────────────────────────────────────────
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring \
+            --keyring /usr/share/keyrings/k6-archive-keyring.gpg \
+            --keyserver hkp://keyserver.ubuntu.com:80 \
+            --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] \
+            https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      # ── Create results dir ────────────────────────────────────────────────────
+      - name: Prepare results directory
+        run: mkdir -p k6-tests/results
+
+      # ── Run Stress Test ───────────────────────────────────────────────────────
+      - name: Run k6 stress test
+        env:
+          TOKEN: ${{ secrets.PALAWANPAY_JWT_TOKEN }}
+          BASE_URL: ${{ github.event.inputs.base_url || 'https://jewelry-uat.palawanpay.com' }}
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'both' }}"
+
+          if [ "$SCENARIO" = "stress_test" ]; then
+            k6 run \
+              -e TOKEN="$TOKEN" \
+              -e BASE_URL="$BASE_URL" \
+              --include-system-env-vars=false \
+              --tag testid=${{ github.run_id }} \
+              k6-tests/tests/stress.js
+          elif [ "$SCENARIO" = "spike_test" ]; then
+            k6 run \
+              -e TOKEN="$TOKEN" \
+              -e BASE_URL="$BASE_URL" \
+              --include-system-env-vars=false \
+              --tag testid=${{ github.run_id }} \
+              k6-tests/tests/stress.js
+          else
+            # Run both (default)
+            k6 run \
+              -e TOKEN="$TOKEN" \
+              -e BASE_URL="$BASE_URL" \
+              --include-system-env-vars=false \
+              --tag testid=${{ github.run_id }} \
+              k6-tests/tests/stress.js
+          fi
+
+      # ── Upload results ─────────────────────────────────────────────────────────
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results-${{ github.run_id }}
+          path: k6-tests/results/
+          retention-days: 30
+
+      # ── Post summary to PR / Job ───────────────────────────────────────────────
+      - name: Post summary
+        if: always()
+        run: |
+          if [ -f k6-tests/results/summary.json ]; then
+            echo "## k6 Stress Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat k6-tests/results/summary.json | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          metrics = d.get('metrics', {})
+          thresholds = d.get('thresholds', {})
+
+          def fmt(m, key):
+              v = metrics.get(key, {}).get('values', {})
+              return f'avg={v.get(\"avg\",0):.0f}ms  p95={v.get(\"p(95)\",0):.0f}ms  p99={v.get(\"p(99)\",0):.0f}ms'
+
+          print('### HTTP')
+          print(f'Duration: {fmt(metrics, \"http_req_duration\")}')
+          failed = metrics.get('http_req_failed', {}).get('values', {}).get('rate', 0)
+          print(f'Error Rate: {failed*100:.2f}%')
+          sr = metrics.get('success_rate', {}).get('values', {}).get('rate', 0)
+          print(f'Success Rate: {sr*100:.2f}%')
+          gql_err = metrics.get('graphql_errors', {}).get('values', {}).get('count', 0)
+          print(f'GraphQL Errors: {gql_err}')
+
+          print()
+          print('### Thresholds')
+          for name, result in thresholds.items():
+              icon = '✅' if result.get('ok') else '❌'
+              print(f'{icon} {name}')
+            "
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No summary.json found — test may have failed before producing output." >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ── Optional: Notify on Failure ───────────────────────────────────────────────
+  notify-failure:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: k6-stress-test
+    if: failure()
+    steps:
+      - name: Send failure notification
+        run: |
+          echo "k6 stress test FAILED on run ${{ github.run_id }}"
+          echo "Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # Plug in Slack/Teams/email webhook here if needed
