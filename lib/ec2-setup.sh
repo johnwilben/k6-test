@@ -46,8 +46,10 @@ apt-get install -y \
   libatk-bridge2.0-0 \
   libdrm2 \
   libxkbcommon0 \
-  libgbm1 \
-  libasound2
+  libgbm1
+
+# libasound2 was renamed to libasound2t64 in newer Ubuntu
+apt-get install -y libasound2t64 2>/dev/null || apt-get install -y libasound2 2>/dev/null || true
 
 echo "  ✅ System packages installed"
 
