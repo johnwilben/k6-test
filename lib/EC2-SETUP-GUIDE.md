@@ -22,24 +22,10 @@ Complete guide for setting up k6 browser-based stress testing on AWS EC2 Gravito
 2. **AMI:** Ubuntu 24.04+ ARM (Graviton)
 3. **Instance type:** c6g.xlarge (or higher based on VU target)
 4. **Advanced details → Purchasing option:** Check **Request Spot Instances**
-5. **Storage:** 20 GB gp3 (enough for k6 + Chromium + reports)
+5. **Storage:** 20 GB gp3
 6. **Security group:** Allow SSH (port 22) from your IP
 7. **Key pair:** Select or create one
 8. Launch
-
-### Launch via AWS CLI
-
-```bash
-aws ec2 run-instances \
-  --image-id ami-xxxxxxxxx \
-  --instance-type c6g.2xlarge \
-  --key-name <your-key-pair> \
-  --security-group-ids <your-sg-id> \
-  --instance-market-options '{"MarketType":"spot","SpotOptions":{"SpotInstanceType":"one-time"}}' \
-  --block-device-mappings '[{"DeviceName":"/dev/xvda","Ebs":{"VolumeSize":20,"VolumeType":"gp3"}}]' \
-  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=k6-stress-test}]' \
-  --region ap-southeast-1
-```
 
 ---
 
@@ -51,75 +37,140 @@ ssh -i your-key.pem ubuntu@<public-ip>
 
 ---
 
-## 3. Setup Script (Copy-Paste Everything)
+## 3. Full Setup (Copy-Paste All)
+
+Run each section in order.
+
+### 3.1 Swap (8GB)
 
 ```bash
-# ─── SWAP (8GB) ─────────────────────────────────────────
 sudo fallocate -l 8G /swapfile
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 sudo sysctl vm.swappiness=10
+```
 
-# ─── SYSTEM PACKAGES ────────────────────────────────────
+### 3.2 System Dependencies
+
+```bash
 sudo apt-get update -y
 sudo apt-get install -y \
-  chromium \
+  git \
+  unzip \
+  curl \
   fonts-liberation \
   libnss3 \
+  libatk1.0-0 \
   libatk-bridge2.0-0 \
+  libcups2 \
   libdrm2 \
   libxkbcommon0 \
   libgbm1 \
-  git
+  libxcomposite1 \
+  libxdamage1 \
+  libxrandr2 \
+  libpango-1.0-0 \
+  libcairo2 \
+  libxshmfence1 \
+  libxfixes3 \
+  libxext6 \
+  libx11-6 \
+  libx11-xcb1 \
+  libxcb1 \
+  libxcursor1 \
+  libxi6 \
+  libxtst6 \
+  libxss1
 sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
+```
 
-# ─── INSTALL k6 ─────────────────────────────────────────
-# Option A: Snap (easiest)
+### 3.3 Install Chromium (Non-Snap)
+
+Ubuntu redirects `apt install chromium` to snap, which doesn't work on EC2.
+Download Chromium directly instead:
+
+```bash
+curl -LO https://playwright.azureedge.net/builds/chromium/1148/chromium-linux-arm64.zip
+unzip chromium-linux-arm64.zip -d chromium-local
+sudo mv chromium-local/chrome-linux /opt/chromium
+sudo chmod +x /opt/chromium/chrome
+```
+
+Verify:
+
+```bash
+/opt/chromium/chrome --no-sandbox --headless --disable-gpu --version
+```
+
+> The "Failed to connect to the bus" warnings are normal on EC2 — ignore them.
+
+### 3.4 Install k6
+
+```bash
 sudo snap install k6
+```
 
-# Option B: Direct binary (if snap not available)
-# curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-arm64.tar.gz
-# tar xzf k6-v0.56.0-linux-arm64.tar.gz
-# sudo mv k6-v0.56.0-linux-arm64/k6 /usr/local/bin/
+If snap not available:
 
-# ─── KERNEL SETTINGS (required for Chromium on EC2) ─────
+```bash
+curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-arm64.tar.gz
+tar xzf k6-v0.56.0-linux-arm64.tar.gz
+sudo mv k6-v0.56.0-linux-arm64/k6 /usr/local/bin/
+```
+
+Verify:
+
+```bash
+k6 version
+```
+
+### 3.5 Kernel Settings (Required for Chromium on EC2)
+
+```bash
+# Allow ptrace (Chromium debugging)
 echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+
+# Increase shared memory
 sudo mount -o remount,size=2G /dev/shm
 
-# ─── CLONE REPO ─────────────────────────────────────────
+# Increase file descriptor limits
+ulimit -n 65536
+
+# Fix CPU frequency file (Graviton doesn't expose this)
+sudo mkdir -p /sys/devices/system/cpu/cpu0/cpufreq
+echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+```
+
+### 3.6 Environment Variables
+
+```bash
+# Add to .bashrc so they persist
+cat >> ~/.bashrc << 'EOF'
+export K6_BROWSER_EXECUTABLE_PATH=/opt/chromium/chrome
+export DBUS_SESSION_BUS_ADDRESS=/dev/null
+export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox"
+ulimit -n 65536
+EOF
+
+source ~/.bashrc
+```
+
+### 3.7 Clone Repo
+
+```bash
 cd /home/ubuntu
 git clone https://github.com/johnwilben/k6-test.git
 cd k6-test
 git checkout fix/k6-stress-test-bugs
-
-# ─── CREATE DIRECTORIES ─────────────────────────────────
 mkdir -p screenshots
 ```
 
 ---
 
-## 4. Set Environment Variables (Every Session)
-
-```bash
-# Required — Chromium won't work on EC2 without these
-export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox"
-
-# Optional — point k6 to system Chromium
-export K6_BROWSER_EXECUTABLE_PATH=$(which chromium)
-```
-
-> Add these to `~/.bashrc` so they persist across sessions:
-> ```bash
-> echo 'export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox"' >> ~/.bashrc
-> echo 'export K6_BROWSER_EXECUTABLE_PATH=$(which chromium)' >> ~/.bashrc
-> source ~/.bashrc
-> ```
-
----
-
-## 5. Run Tests
+## 4. Run Tests
 
 ### Stress Test (Gradual Ramp)
 
@@ -200,7 +251,7 @@ k6 run \
 
 ---
 
-## 6. Test Flows Covered
+## 5. Test Flows Covered
 
 Both stress and spike tests cover these 14 user flows:
 
@@ -223,7 +274,7 @@ Both stress and spike tests cover these 14 user flows:
 
 ---
 
-## 7. Reports & Output
+## 6. Reports & Output
 
 After each run, these files are generated:
 
@@ -238,14 +289,13 @@ After each run, these files are generated:
 ### Download Reports to Local Machine
 
 ```bash
-# From your local machine
 scp -i your-key.pem ubuntu@<ec2-ip>:/home/ubuntu/k6-test/stress-report.html .
 scp -i your-key.pem ubuntu@<ec2-ip>:/home/ubuntu/k6-test/spike-report.html .
 ```
 
 ---
 
-## 8. Metrics Collected
+## 7. Metrics Collected
 
 ### Global Metrics
 
@@ -274,7 +324,7 @@ scp -i your-key.pem ubuntu@<ec2-ip>:/home/ubuntu/k6-test/spike-report.html .
 
 ---
 
-## 9. Thresholds (Pass/Fail)
+## 8. Thresholds (Pass/Fail)
 
 ### Stress Test
 
@@ -284,7 +334,7 @@ scp -i your-key.pem ubuntu@<ec2-ip>:/home/ubuntu/k6-test/spike-report.html .
 | `flow_errors` | < 15% |
 | `flow_success` | > 85% |
 
-### Spike Test (relaxed for spike conditions)
+### Spike Test
 
 | Metric | Threshold |
 |--------|-----------|
@@ -294,7 +344,7 @@ scp -i your-key.pem ubuntu@<ec2-ip>:/home/ubuntu/k6-test/spike-report.html .
 
 ---
 
-## 10. VU Capacity Guide
+## 9. VU Capacity Guide
 
 | RAM | Max Browser VUs (safe) | Max Browser VUs (with swap) |
 |-----|------------------------|----------------------------|
@@ -305,26 +355,55 @@ scp -i your-key.pem ubuntu@<ec2-ip>:/home/ubuntu/k6-test/spike-report.html .
 
 ---
 
-## 11. Troubleshooting
+## 10. Troubleshooting
 
-### Chromium crashes on launch
+### "browser process ended unexpectedly"
 ```bash
-# Fix ptrace
-echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-
-# Fix shared memory
-sudo mount -o remount,size=2G /dev/shm
-
-# Ensure browser args are set
+# Ensure all env vars are set
+export K6_BROWSER_EXECUTABLE_PATH=/opt/chromium/chrome
+export DBUS_SESSION_BUS_ADDRESS=/dev/null
 export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox"
 ```
+
+### "ptrace: Input/output error"
+```bash
+echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+```
+
+### "scaling_cur_freq: No such file or directory"
+```bash
+sudo mkdir -p /sys/devices/system/cpu/cpu0/cpufreq
+echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+```
+
+### "Too many open files"
+```bash
+ulimit -n 65536
+sudo sysctl -w fs.inotify.max_user_instances=1024
+sudo sysctl -w fs.inotify.max_user_watches=524288
+```
+
+### "maximum number of active connections for UID"
+```bash
+export DBUS_SESSION_BUS_ADDRESS=/dev/null
+```
+
+### "Failed to connect to the bus"
+Normal on EC2 — these are warnings, not errors. Ignore them.
 
 ### "signal: killed" during test
 RAM is full. Reduce VUs or use a bigger instance.
 
-### k6 command not found (snap)
+### Leftover Chromium processes
 ```bash
-# Snap binary might not be in PATH
+pkill -9 chromium
+pkill -9 chrome
+pkill -9 k6
+```
+
+### k6 command not found
+```bash
 export PATH=$PATH:/snap/bin
 # Or install via direct binary
 curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-arm64.tar.gz
@@ -332,13 +411,61 @@ tar xzf k6-v0.56.0-linux-arm64.tar.gz
 sudo mv k6-v0.56.0-linux-arm64/k6 /usr/local/bin/
 ```
 
-### libasound2 not found
-```bash
-sudo apt-get install -y libasound2t64
-```
+---
 
-### Timeouts during test
-Normal under stress — this IS the test data. If too many timeouts, reduce VUs.
+## 11. Quick Reference — Fresh Instance Setup
+
+Copy-paste this entire block on a fresh Ubuntu ARM EC2:
+
+```bash
+# Swap
+sudo fallocate -l 8G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# System deps
+sudo apt-get update -y
+sudo apt-get install -y git unzip curl fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libgbm1 libxcomposite1 libxdamage1 libxrandr2 libpango-1.0-0 libcairo2 libxshmfence1 libxfixes3 libxext6 libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxtst6 libxss1
+sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
+
+# Chromium (non-snap)
+curl -LO https://playwright.azureedge.net/builds/chromium/1148/chromium-linux-arm64.zip
+unzip chromium-linux-arm64.zip -d chromium-local
+sudo mv chromium-local/chrome-linux /opt/chromium
+sudo chmod +x /opt/chromium/chrome
+
+# k6
+sudo snap install k6
+
+# Kernel settings
+echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
+sudo mount -o remount,size=2G /dev/shm
+sudo mkdir -p /sys/devices/system/cpu/cpu0/cpufreq
+echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
+echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+
+# Env vars (persist)
+cat >> ~/.bashrc << 'EOF'
+export K6_BROWSER_EXECUTABLE_PATH=/opt/chromium/chrome
+export DBUS_SESSION_BUS_ADDRESS=/dev/null
+export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox"
+ulimit -n 65536
+EOF
+source ~/.bashrc
+
+# Repo
+cd /home/ubuntu
+git clone https://github.com/johnwilben/k6-test.git
+cd k6-test
+git checkout fix/k6-stress-test-bugs
+mkdir -p screenshots
+
+# Run
+k6 run \
+  -e TOKEN=<your_sso_jwt_token> \
+  -e BASE_URL=https://jewelry-uat.palawanpay.com \
+  -e VUS=30 \
+  lib/stress.js
+```
 
 ---
 
@@ -347,7 +474,6 @@ Normal under stress — this IS the test data. If too many timeouts, reduce VUs.
 **Terminate the EC2 instance** to stop charges:
 
 ```bash
-# From AWS CLI
 aws ec2 terminate-instances --instance-ids <instance-id>
 ```
 
