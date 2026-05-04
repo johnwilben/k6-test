@@ -86,25 +86,28 @@ sudo apt-get install -y \
 sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
 ```
 
-### 3.3 Install Chromium (Non-Snap)
+### 3.3 Install Chromium (Non-Snap via PPA)
 
-Ubuntu redirects `apt install chromium` to snap, which doesn't work on EC2.
-Download Chromium directly instead:
+Ubuntu redirects `apt install chromium` to snap, which has issues on EC2.
+Use the xtradeb PPA for a real Chromium package:
 
 ```bash
-curl -LO https://playwright.azureedge.net/builds/chromium/1148/chromium-linux-arm64.zip
-unzip chromium-linux-arm64.zip -d chromium-local
-sudo mv chromium-local/chrome-linux /opt/chromium
-sudo chmod +x /opt/chromium/chrome
+sudo add-apt-repository -y ppa:xtradeb/apps
+sudo apt-get update
+sudo apt-get install -y chromium
+```
+
+Set k6 to use it:
+
+```bash
+export K6_BROWSER_EXECUTABLE_PATH=$(which chromium)
 ```
 
 Verify:
 
 ```bash
-/opt/chromium/chrome --no-sandbox --headless --disable-gpu --version
+chromium --no-sandbox --headless --disable-gpu --version
 ```
-
-> The "Failed to connect to the bus" warnings are normal on EC2 — ignore them.
 
 ### 3.4 Install k6
 
@@ -149,9 +152,9 @@ echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 ```bash
 # Add to .bashrc so they persist
 cat >> ~/.bashrc << 'EOF'
-export K6_BROWSER_EXECUTABLE_PATH=/opt/chromium/chrome
+export K6_BROWSER_EXECUTABLE_PATH=$(which chromium)
 export DBUS_SESSION_BUS_ADDRESS=/dev/null
-export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox"
+export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox --incognito --no-first-run --disable-background-networking --disable-features=MetricsReporting,UkmEngine"
 ulimit -n 65536
 EOF
 
@@ -415,7 +418,7 @@ sudo mv k6-v0.56.0-linux-arm64/k6 /usr/local/bin/
 
 ## 11. Quick Reference — Fresh Instance Setup
 
-Copy-paste this entire block on a fresh Ubuntu ARM EC2:
+Copy-paste this entire block on a fresh **Ubuntu 24.04 x86** EC2:
 
 ```bash
 # Swap
@@ -424,30 +427,30 @@ echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 # System deps
 sudo apt-get update -y
-sudo apt-get install -y git unzip curl fonts-liberation libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libgbm1 libxcomposite1 libxdamage1 libxrandr2 libpango-1.0-0 libcairo2 libxshmfence1 libxfixes3 libxext6 libx11-6 libx11-xcb1 libxcb1 libxcursor1 libxi6 libxtst6 libxss1
+sudo apt-get install -y git curl fonts-liberation libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1
 sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
 
-# Chromium (non-snap)
-curl -LO https://playwright.azureedge.net/builds/chromium/1148/chromium-linux-arm64.zip
-unzip chromium-linux-arm64.zip -d chromium-local
-sudo mv chromium-local/chrome-linux /opt/chromium
-sudo chmod +x /opt/chromium/chrome
+# Chromium (non-snap via PPA)
+sudo add-apt-repository -y ppa:xtradeb/apps
+sudo apt-get update
+sudo apt-get install -y chromium
 
 # k6
-sudo snap install k6
+curl -LO https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz
+tar xzf k6-v0.54.0-linux-amd64.tar.gz
+sudo mv k6-v0.54.0-linux-amd64/k6 /usr/local/bin/k6
 
 # Kernel settings
 echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
-sudo mount -o remount,size=2G /dev/shm
-sudo mkdir -p /sys/devices/system/cpu/cpu0/cpufreq
-echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
-echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
+echo 'kernel.yama.ptrace_scope = 0' | sudo tee /etc/sysctl.d/99-ptrace.conf
+sudo sysctl -p /etc/sysctl.d/99-ptrace.conf
+sudo mount -o remount,size=4G /dev/shm
 
 # Env vars (persist)
 cat >> ~/.bashrc << 'EOF'
-export K6_BROWSER_EXECUTABLE_PATH=/opt/chromium/chrome
+export K6_BROWSER_EXECUTABLE_PATH=$(which chromium)
 export DBUS_SESSION_BUS_ADDRESS=/dev/null
-export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox"
+export K6_BROWSER_ARGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --disable-setuid-sandbox --incognito --no-first-run --disable-background-networking --disable-features=MetricsReporting,UkmEngine"
 ulimit -n 65536
 EOF
 source ~/.bashrc
@@ -459,11 +462,21 @@ cd k6-test
 git checkout fix/k6-stress-test-bugs
 mkdir -p screenshots
 
-# Run
+# Upload tokens file from local machine:
+#   scp -i your-key.pem tokens.txt ubuntu@<ec2-ip>:/home/ubuntu/k6-test/
+
+# Run (single token)
 k6 run \
   -e TOKEN=<your_sso_jwt_token> \
   -e BASE_URL=https://jewelry-uat.palawanpay.com \
   -e VUS=30 \
+  lib/stress.js
+
+# Run (multi token file)
+k6 run \
+  -e TOKENS_FILE=/home/ubuntu/k6-test/tokens.txt \
+  -e BASE_URL=https://jewelry-uat.palawanpay.com \
+  -e VUS=75 \
   lib/stress.js
 ```
 
