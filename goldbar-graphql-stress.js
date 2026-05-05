@@ -7,6 +7,11 @@ import { textSummary } from "https://jslib.k6.io/k6-summary/0.0.1/index.js";
 import { SharedArray } from "k6/data";
 import papaparse from "https://jslib.k6.io/papaparse/5.1.1/index.js";
 
+// ─── HELPERS ────────────────────────────────────────────
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 // ─── CONFIG ─────────────────────────────────────────────
 const BASE_URL = __ENV.BASE_URL || "https://goldbar-uat.palawanpay.com";
 const GRAPHQL_URL = `${BASE_URL}/api/graphql`;
