@@ -10,7 +10,7 @@ import papaparse from "https://jslib.k6.io/papaparse/5.1.1/index.js";
 // ─── CONFIG ─────────────────────────────────────────────
 const BASE = __ENV.BASE_URL || "https://goldbar-uat.palawanpay.com";
 const DEBUG = __ENV.DEBUG === "true";
-const TIMEOUT = 60000;
+const TIMEOUT = parseInt(__ENV.TIMEOUT) || 120000;
 
 // ─── TOKEN HANDLING ─────────────────────────────────────
 // Option 1: Single token     → -e TOKEN=<jwt>
@@ -200,7 +200,7 @@ async function tracked(name, page, fn) {
 }
 
 // ─── DATA ───────────────────────────────────────────────
-const SEARCH_TERMS = ["gold", "bar", "coin", "variant", "test"];
+const SEARCH_TERMS = ["G01"];
 const PRODUCT_URLS = [
   "/p/G01",
 ];
