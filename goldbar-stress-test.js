@@ -11,6 +11,8 @@ import papaparse from "https://jslib.k6.io/papaparse/5.1.1/index.js";
 const BASE = __ENV.BASE_URL || "https://goldbar-uat.palawanpay.com";
 const DEBUG = __ENV.DEBUG === "true";
 const TIMEOUT = parseInt(__ENV.TIMEOUT) || 120000;
+const THINK_MIN = parseInt(__ENV.THINK_MIN) || 5;
+const THINK_MAX = parseInt(__ENV.THINK_MAX) || 15;
 
 // ─── TOKEN HANDLING ─────────────────────────────────────
 // Option 1: Single token     → -e TOKEN=<jwt>
@@ -243,7 +245,7 @@ export default async function () {
         "Login redirected": () => url.includes(BASE),
       });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 2. USER PROFILE ───────────────────────────────
     await tracked("profile", page, async () => {
@@ -254,7 +256,7 @@ export default async function () {
         "Profile loaded": () => page.url().includes("/account"),
       });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 3. SEARCH PRODUCTS ────────────────────────────
     await tracked("search", page, async () => {
@@ -266,7 +268,7 @@ export default async function () {
         "Search results loaded": () => page.url().includes("/search"),
       });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 4. PDP (Product Detail Page) ──────────────────
     await tracked("pdp", page, async () => {
@@ -280,7 +282,7 @@ export default async function () {
       });
       log(`PDP URL: ${url}`);
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 5. ADD TO CART ────────────────────────────────
     await tracked("cart_add", page, async () => {
@@ -320,7 +322,7 @@ export default async function () {
 
       check(page, { "Add to cart completed": () => true });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 6. VIEW CART ──────────────────────────────────
     await tracked("cart_view", page, async () => {
@@ -331,7 +333,7 @@ export default async function () {
         "Cart page loaded": () => page.url().includes("/cart"),
       });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 7. REMOVE FROM CART ───────────────────────────
     await tracked("cart_remove", page, async () => {
@@ -355,7 +357,7 @@ export default async function () {
 
       check(page, { "Cart remove completed": () => true });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 8. ADD TO WISHLIST ────────────────────────────
     await tracked("wishlist_add", page, async () => {
@@ -389,7 +391,7 @@ export default async function () {
 
       check(page, { "Wishlist add completed": () => true });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 9. REMOVE FROM WISHLIST ──────────────────────
     await tracked("wishlist_remove", page, async () => {
@@ -411,7 +413,7 @@ export default async function () {
 
       check(page, { "Wishlist remove completed": () => true });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 10. ADD ADDRESS ───────────────────────────────
     await tracked("address_add", page, async () => {
@@ -470,7 +472,7 @@ export default async function () {
 
       check(page, { "Address add completed": () => true });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 11. UPDATE ADDRESS ────────────────────────────
     await tracked("address_update", page, async () => {
@@ -510,7 +512,7 @@ export default async function () {
 
       check(page, { "Address update completed": () => true });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 12. REMOVE ADDRESS ────────────────────────────
     await tracked("address_remove", page, async () => {
@@ -545,7 +547,7 @@ export default async function () {
 
       check(page, { "Address remove completed": () => true });
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 13. ORDERS / PURCHASES ────────────────────────
     await tracked("orders", page, async () => {
@@ -570,7 +572,7 @@ export default async function () {
         console.log(`[VU:${__VU}] 📦 Order detail: ${page.url()}`);
       }
     });
-    sleep(randInt(1, 2));
+    sleep(randInt(THINK_MIN, THINK_MAX));
 
   } finally {
     await page.close();
