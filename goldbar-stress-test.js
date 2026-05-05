@@ -179,6 +179,16 @@ async function safeFill(locator, value, timeout = 3000) {
   }
 }
 
+async function waitForToast(page, timeout = 10000) {
+  try {
+    const toast = page.locator('[class*="toast"], [class*="Toastify"], [class*="notification"], [class*="snackbar"], [role="alert"], [class*="message"]');
+    await toast.first().waitFor({ state: "visible", timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── TRACKED FLOW ───────────────────────────────────────
 async function tracked(name, page, fn) {
   const start = Date.now();
@@ -321,7 +331,7 @@ export default async function () {
         );
       }
       if (added) {
-        await page.waitForTimeout(3000);
+        await waitForToast(page);
       }
 
       check(page, { "Add to cart completed": () => true });
@@ -356,7 +366,7 @@ export default async function () {
         );
       }
       if (removed) {
-        await page.waitForTimeout(3000);
+        await waitForToast(page);
       }
 
       check(page, { "Cart remove completed": () => true });
@@ -392,7 +402,7 @@ export default async function () {
         );
       }
       if (added) {
-        await page.waitForTimeout(1500);
+        await waitForToast(page);
       }
 
       check(page, { "Wishlist add completed": () => true });
@@ -418,7 +428,7 @@ export default async function () {
         );
       }
       if (removed) {
-        await page.waitForTimeout(3000);
+        await waitForToast(page);
       }
 
       check(page, { "Wishlist remove completed": () => true });
