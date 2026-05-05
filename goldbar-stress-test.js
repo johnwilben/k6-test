@@ -285,14 +285,17 @@ export default async function () {
     sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 5. ADD TO CART ────────────────────────────────
-    await tracked("cart_add", page, async () => {
-      // Ensure we're on a PDP
-      if (!page.url().includes("/p/")) {
+    // Navigate to PDP first if needed (tracked separately)
+    if (!page.url().includes("/p/")) {
+      await tracked("pdp_for_cart", page, async () => {
         const productUrl = randomItem(PRODUCT_URLS);
         await navigate(page, productUrl);
         await page.waitForLoadState("domcontentloaded");
-      }
+      });
+    }
 
+    // Actual add to cart click
+    await tracked("cart_add", page, async () => {
       // Try selecting a variant first (gold bars have variants)
       await safeClick(
         page.locator('[class*="swatch"], [class*="variant"], [class*="option"]'),
@@ -360,15 +363,17 @@ export default async function () {
     sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 8. ADD TO WISHLIST ────────────────────────────
-    await tracked("wishlist_add", page, async () => {
-      // Go to a PDP first
-      if (!page.url().includes("/p/")) {
+    // Navigate to PDP first (tracked separately)
+    if (!page.url().includes("/p/")) {
+      await tracked("pdp_for_wishlist", page, async () => {
         const productUrl = randomItem(PRODUCT_URLS);
         await navigate(page, productUrl);
         await page.waitForLoadState("domcontentloaded");
-      }
+      });
+    }
 
-      // Click heart/wishlist icon
+    // Actual wishlist click (just the heart icon)
+    await tracked("wishlist_add", page, async () => {
       let added = await safeClick(
         page.locator('[aria-label="Add to wishlist"]'),
         5000
@@ -394,9 +399,13 @@ export default async function () {
     sleep(randInt(THINK_MIN, THINK_MAX));
 
     // ── 9. REMOVE FROM WISHLIST ──────────────────────
-    await tracked("wishlist_remove", page, async () => {
+    // Navigate to wishlist page (tracked separately)
+    await tracked("wishlist_page_load", page, async () => {
       await navigate(page, "/wishlist");
+    });
 
+    // Actual remove click
+    await tracked("wishlist_remove", page, async () => {
       let removed = await safeClick(
         page.locator('button:has-text("Remove")'),
         5000
