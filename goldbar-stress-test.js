@@ -94,6 +94,7 @@ const fcp = new Trend("first_contentful_paint", true);
 const flows = [
   "login", "profile", "search", "pdp",
   "cart_add", "cart_view", "cart_remove",
+  "pdp_for_cart", "pdp_for_wishlist", "wishlist_page_load",
   "wishlist_add", "wishlist_remove",
   "address_add", "address_update", "address_remove",
   "orders",
