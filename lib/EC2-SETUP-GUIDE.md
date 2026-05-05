@@ -1,6 +1,6 @@
 # EC2 Setup Guide — k6 Browser Stress Test
 
-Complete guide for setting up k6 browser-based stress testing on AWS EC2 Graviton (ARM) spot instances.
+Complete guide for setting up k6 browser-based stress testing on AWS EC2 x86 (Intel/AMD) spot instances.
 
 ---
 
@@ -10,17 +10,21 @@ Complete guide for setting up k6 browser-based stress testing on AWS EC2 Gravito
 
 | VUs Target | Instance | vCPU | RAM | Spot Price |
 |------------|----------|------|-----|------------|
-| 30 VUs | c6g.xlarge | 4 | 8 GB | ~$0.03/hr |
-| 50 VUs | c6g.2xlarge | 8 | 16 GB | ~$0.07/hr |
-| 80 VUs | c6g.4xlarge | 16 | 32 GB | ~$0.14/hr |
+| 30 VUs | c6i.xlarge | 4 | 8 GB | ~$0.03/hr |
+| 50 VUs | c6i.2xlarge | 8 | 16 GB | ~$0.07/hr |
+| 80 VUs | c6i.4xlarge | 16 | 32 GB | ~$0.14/hr |
+| 150 VUs | c6i.8xlarge | 32 | 64 GB | ~$0.28/hr |
+| 300 VUs | c6i.12xlarge | 48 | 96 GB | ~$0.42/hr |
+| 500 VUs | c6i.16xlarge | 64 | 128 GB | ~$0.56/hr |
+| 1000 VUs | c6i.24xlarge | 96 | 192 GB | ~$0.84/hr |
 
 > Each Chromium browser VU uses ~300-500 MB RAM.
 
 ### Launch via AWS Console
 
 1. Go to **EC2 → Launch Instance**
-2. **AMI:** Ubuntu 24.04+ ARM (Graviton)
-3. **Instance type:** c6g.xlarge (or higher based on VU target)
+2. **AMI:** Ubuntu 24.04+ x86_64 (amd64)
+3. **Instance type:** c6i.xlarge (or higher based on VU target)
 4. **Advanced details → Purchasing option:** Check **Request Spot Instances**
 5. **Storage:** 20 GB gp3
 6. **Security group:** Allow SSH (port 22) from your IP
@@ -100,6 +104,7 @@ sudo apt-get install -y chromium
 Set k6 to use it:
 
 ```bash
+
 export K6_BROWSER_EXECUTABLE_PATH=$(which chromium)
 ```
 
@@ -118,9 +123,9 @@ sudo snap install k6
 If snap not available:
 
 ```bash
-curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-arm64.tar.gz
-tar xzf k6-v0.56.0-linux-arm64.tar.gz
-sudo mv k6-v0.56.0-linux-arm64/k6 /usr/local/bin/
+curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz
+tar xzf k6-v0.56.0-linux-amd64.tar.gz
+sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
 ```
 
 Verify:
@@ -140,11 +145,6 @@ sudo mount -o remount,size=2G /dev/shm
 
 # Increase file descriptor limits
 ulimit -n 65536
-
-# Fix CPU frequency file (Graviton doesn't expose this)
-sudo mkdir -p /sys/devices/system/cpu/cpu0/cpufreq
-echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
-echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 ```
 
 ### 3.6 Environment Variables
@@ -355,6 +355,9 @@ scp -i your-key.pem ubuntu@<ec2-ip>:/home/ubuntu/k6-test/spike-report.html .
 | 16 GB | 30-40 | 45-55 |
 | 32 GB | 60-80 | 90-100 |
 | 64 GB | 120-150 | 170-200 |
+| 96 GB | 180-230 | 260-300 |
+| 128 GB | 250-320 | 350-500 |
+| 192 GB | 380-480 | 550-1000 |
 
 ---
 
@@ -374,6 +377,8 @@ echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
 ```
 
 ### "scaling_cur_freq: No such file or directory"
+
+This is a Graviton/ARM-specific issue. On x86 instances, this file exists by default. If you still encounter it:
 ```bash
 sudo mkdir -p /sys/devices/system/cpu/cpu0/cpufreq
 echo 2500000 | sudo tee /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq
@@ -409,16 +414,16 @@ pkill -9 k6
 ```bash
 export PATH=$PATH:/snap/bin
 # Or install via direct binary
-curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-arm64.tar.gz
-tar xzf k6-v0.56.0-linux-arm64.tar.gz
-sudo mv k6-v0.56.0-linux-arm64/k6 /usr/local/bin/
+curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz
+tar xzf k6-v0.56.0-linux-amd64.tar.gz
+sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/
 ```
 
 ---
 
 ## 11. Quick Reference — Fresh Instance Setup
 
-Copy-paste this entire block on a fresh **Ubuntu 24.04 x86** EC2:
+Copy-paste this entire block on a fresh **Ubuntu 24.04 x86_64** EC2:
 
 ```bash
 # Swap
@@ -435,10 +440,10 @@ sudo add-apt-repository -y ppa:xtradeb/apps
 sudo apt-get update
 sudo apt-get install -y chromium
 
-# k6
-curl -LO https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz
-tar xzf k6-v0.54.0-linux-amd64.tar.gz
-sudo mv k6-v0.54.0-linux-amd64/k6 /usr/local/bin/k6
+# k6 (x86_64)
+curl -LO https://github.com/grafana/k6/releases/download/v0.56.0/k6-v0.56.0-linux-amd64.tar.gz
+tar xzf k6-v0.56.0-linux-amd64.tar.gz
+sudo mv k6-v0.56.0-linux-amd64/k6 /usr/local/bin/k6
 
 # Kernel settings
 echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
