@@ -202,12 +202,7 @@ async function tracked(name, page, fn) {
 // ─── DATA ───────────────────────────────────────────────
 const SEARCH_TERMS = ["gold", "bar", "coin", "variant", "test"];
 const PRODUCT_URLS = [
-  "/p/gold-empty-featured-test",
-  "/p/gold-bar-variant",
-  "/p/new-gold-bar-with-variant",
-  "/p/gold-with-variant",
-  "/p/test-gold-details",
-  "/p/test-gold-2",
+  "/p/G01",
 ];
 const ADDRESS_DATA = {
   firstname: "Stress",
